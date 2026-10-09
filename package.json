@@ -1,0 +1,28 @@
+{
+  "name": "intellitest-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "IntelliTest AI — multi-agent code vulnerability scanner (web, localhost and Windows desktop).",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web",
+    "desktop"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace web run build",
+    "start": "npm --workspace server run start",
+    "test": "npm --workspace server test",
+    "build:win": "npm run build && npm --workspace desktop run dist",
+    "release:win": "npm run build && npm --workspace desktop run release"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

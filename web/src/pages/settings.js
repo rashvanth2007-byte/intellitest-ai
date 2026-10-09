@@ -1,0 +1,227 @@
+import { put, del, post } from '../lib/api.js';
+import { esc, icon, toast, confirmDialog, applyTheme, fmtTime, initials, safeUrl } from '../lib/ui.js';
+import { state, refreshSettings, refreshSession, signedOut } from '../main.js';
+
+const KEY_INFO = {
+  anthropic: { title: 'Anthropic (Claude) API key', ph: 'sk-ant-…', help: 'Create one at console.anthropic.com → API keys.' },
+  gemini: { title: 'Google Gemini API key', ph: 'AIza…', help: 'Create one at aistudio.google.com → Get API key.' },
+  github: { title: 'GitHub personal access token', ph: 'github_pat_… or ghp_…', help: 'Optional. Lets you scan private repos and raises GitHub rate limits. Needs read access to repository contents.' },
+};
+
+export async function renderSettings(root) {
+  await refreshSettings();
+  paint();
+
+  function paint() {
+    const s = state.settings, k = state.keys, o = state.options, u = state.user;
+    const sel = (v) => (s.engine === v ? 'sel' : '');
+    root.innerHTML = `<div class="page">
+      <div class="page-head"><div><div class="page-title">Settings</div><div class="page-sub">Engine, API keys and account. Keys are encrypted on the server and never sent back to the browser.</div></div></div>
+      <div class="settings">
+
+        <div class="card">
+          <div class="sect-title">Scanning engine</div>
+          ${[['auto', 'Automatic', 'Use Claude if a key is available, otherwise Gemini, otherwise rules only.'],
+            ['claude', 'Claude (Anthropic)', 'Five Claude agents review your code. Best accuracy.'],
+            ['gemini', 'Gemini (Google)', 'Five Gemini agents review your code.'],
+            ['rules', 'Rules only (offline)', 'No AI: rule engine, secret scanner and dependency CVE lookup only. Nothing leaves your machine except package names sent to OSV.dev.']]
+            .map(([v, n, d]) => `<label class="engine-opt ${sel(v)}"><input type="radio" name="engine" value="${v}" ${s.engine === v ? 'checked' : ''}><div><div class="eo-name">${n}</div><div class="eo-desc">${d}</div></div></label>`).join('')}
+          <div class="grid-2" style="margin-top:8px">
+            <div class="field"><label class="field-label" for="claudeModel">Claude model</label>
+              <select class="select" id="claudeModel" style="width:100%">${o.claudeModels.map((m) => `<option value="${esc(m.id)}" ${m.id === s.claudeModel ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></div>
+            <div class="field"><label class="field-label" for="geminiModel">Gemini model</label>
+              <select class="select" id="geminiModel" style="width:100%">${o.geminiModels.map((m) => `<option value="${esc(m.id)}" ${m.id === s.geminiModel ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></div>
+            <div class="field"><label class="field-label" for="aiDepth">AI depth (how much code the agents read)</label>
+              <select class="select" id="aiDepth" style="width:100%">${o.depths.map((d) => `<option value="${esc(d.id)}" ${d.id === s.aiDepth ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</select></div>
+            <div class="field"><label class="field-label" for="alertThreshold">Alert popup</label>
+              <select class="select" id="alertThreshold" style="width:100%">
+                <option value="critical" ${s.alertThreshold === 'critical' ? 'selected' : ''}>Critical issues</option>
+                <option value="high" ${s.alertThreshold === 'high' ? 'selected' : ''}>High and critical</option>
+                <option value="off" ${s.alertThreshold === 'off' ? 'selected' : ''}>Off</option></select></div>
+          </div>
+          <div class="field" style="margin-top:12px"><span class="field-label">AI agents</span>
+            <div class="agent-toggles">${o.agents.map((a) => `<label class="chip-toggle ${s.agents.includes(a.id) ? 'on' : ''}"><input type="checkbox" class="sr-only" data-agent="${esc(a.id)}" ${s.agents.includes(a.id) ? 'checked' : ''}>${esc(a.name)}<span class="dim" style="font-weight:400">${esc(a.role)}</span></label>`).join('')}</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="sect-title">API keys</div>
+          ${['anthropic', 'gemini', 'github'].map((p) => {
+            const st = k[p];
+            return `<div class="set-row" style="flex-direction:column;align-items:stretch">
+              <div class="set-info"><h4>${KEY_INFO[p].title}</h4><p>${KEY_INFO[p].help}</p></div>
+              <div class="key-row">
+                <input class="input mono" type="password" id="key-${p}" aria-label="${KEY_INFO[p].title}" placeholder="${st.user ? `Saved (${esc(st.user.hint)}) — paste to replace` : KEY_INFO[p].ph}" autocomplete="off" spellcheck="false">
+                <button class="btn btn-primary btn-sm" data-save="${p}">Save</button>
+                ${st.user ? `<button class="btn btn-ghost btn-sm" data-test="${p}">Test</button><button class="btn btn-ghost btn-sm" data-remove="${p}" aria-label="Remove ${KEY_INFO[p].title}" title="Remove key">${icon('trash')}</button>` : ''}
+              </div>
+              <div class="key-status ${st.user || st.server ? 'ok' : ''}">● ${st.user ? `Your key ${esc(st.user.hint)} saved ${fmtTime(st.user.updatedAt)}` : st.server ? 'Using the server-provided key' : 'Not set'}</div>
+            </div>`;
+          }).join('')}
+        </div>
+
+        <div class="card">
+          <div class="sect-title">Account</div>
+          <div class="set-row">
+            <div style="display:flex;gap:12px;align-items:center;min-width:0">
+              <div class="avatar" style="width:40px;height:40px;font-size:14px">${safeUrl(u.avatarUrl) ? `<img src="${esc(safeUrl(u.avatarUrl))}" alt="">` : esc(initials(u.name))}</div>
+              <div class="set-info"><h4>${esc(u.name)}</h4><p>${esc(u.email)}</p></div>
+            </div>
+          </div>
+          <div class="set-row">
+            <div class="set-info" style="flex:1"><h4>Display name</h4>
+              <div class="key-row" style="margin-top:6px"><input class="input" id="name" value="${esc(u.name)}" maxlength="80" aria-label="Display name"><button class="btn btn-ghost btn-sm" id="saveName">Save</button></div></div>
+          </div>
+          <div class="set-row">
+            <div class="set-info"><h4>GitHub</h4><p>${u.github ? `Connected as <b>@${esc(u.github.login)}</b>${/\brepo\b/.test(u.github.scope || '') ? ' with private repo access.' : '. Grant repo access to scan private repositories.'}` : 'Connect GitHub to sign in with it and scan private repositories.'}</p></div>
+            <div class="btn-row">${state.providers.github
+              ? (u.github ? `${/\brepo\b/.test(u.github.scope || '') ? '' : '<a class="btn btn-ghost btn-sm" href="/api/auth/github/start?scope=repo">Grant repo access</a>'}<button class="btn btn-ghost btn-sm" id="unlinkGh">Disconnect</button>`
+                : '<a class="btn btn-github btn-sm" href="/api/auth/github/start">' + icon('github') + 'Connect</a>')
+              : '<span class="dim" style="font-size:12px">Not configured on this server</span>'}</div>
+          </div>
+          <div class="set-row" style="flex-direction:column;align-items:stretch">
+            <div class="set-info"><h4>${u.hasPassword ? 'Change password' : 'Set a password'}</h4><p>At least 8 characters with letters and numbers.</p></div>
+            <div class="grid-2">
+              ${u.hasPassword ? '<input class="input" type="password" id="curPw" aria-label="Current password" placeholder="Current password" autocomplete="current-password">' : ''}
+              <input class="input" type="password" id="newPw" aria-label="New password" placeholder="New password" autocomplete="new-password">
+            </div>
+            <div><button class="btn btn-ghost btn-sm" id="savePw">Update password</button></div>
+          </div>
+          <div class="set-row">
+            <div class="set-info"><h4>Theme</h4><p>Match your system or pick one.</p></div>
+            <select class="select" id="theme" aria-label="Theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select>
+          </div>
+          <div class="set-row">
+            <div class="set-info"><h4>Delete account</h4><p>Permanently deletes your account, scans, findings and saved keys.</p></div>
+            <button class="btn btn-danger btn-sm" id="delAcct">Delete account</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="sect-title">About &amp; updates</div>
+          <div class="set-row">
+            <div class="set-info"><h4 id="appVersion">IntelliTest AI</h4>
+              <p id="updateInfo">${window.intellitestDesktop
+                ? 'The desktop app checks for updates automatically when it starts. You can also check now.'
+                : 'You are using the web version — it updates automatically whenever a new version is deployed.'}</p></div>
+            ${window.intellitestDesktop ? '<button class="btn btn-ghost btn-sm" id="checkUpdates">Check for updates</button>' : ''}
+          </div>
+        </div>
+      </div>
+    </div>`;
+    wire();
+    wireAbout();
+  }
+
+  /** Desktop-only bridge (desktop/preload.cjs): version + manual update check. */
+  function wireAbout() {
+    const d = window.intellitestDesktop;
+    if (!d) return;
+    d.getVersion().then((v) => { const el = root.querySelector('#appVersion'); if (el) el.textContent = `IntelliTest AI ${v} (desktop)`; }).catch(() => {});
+    const btn = root.querySelector('#checkUpdates');
+    btn.onclick = async () => {
+      busyBtn(btn, true);
+      try { await d.checkForUpdates(); } catch (e) { toast(e.message, 'err'); }
+      busyBtn(btn, false, 'Check for updates');
+    };
+  }
+
+  /** Save a settings patch. Resolves true on success; on failure shows the error and resolves false. */
+  async function saveSettings(patch) {
+    let r;
+    try { r = await put('/settings', { ...state.settings, ...patch }); } catch (e) { toast(e.message, 'err'); return false; }
+    state.settings = r.settings;
+    try { await refreshSettings(); } catch { /* saved; the next page load picks up the rest */ }
+    toast('Settings saved', 'ok', 1800);
+    return true;
+  }
+  const busyBtn = (b, on, label) => { b.disabled = on; if (on) b.innerHTML = '<div class="spinner"></div>'; else b.textContent = label; };
+
+  function wire() {
+    const $ = (s) => root.querySelector(s);
+    root.querySelectorAll('input[name="engine"]').forEach((r) => r.addEventListener('change', async () => {
+      await saveSettings({ engine: r.value });
+      if (root.isConnected) paint(); // on failure this re-renders from the unchanged saved state (reverts the radio)
+    }));
+    for (const id of ['claudeModel', 'geminiModel', 'aiDepth', 'alertThreshold']) {
+      $(`#${id}`).onchange = async (e) => {
+        const el = e.target;
+        if (!(await saveSettings({ [id]: el.value }))) el.value = state.settings[id]; // revert on failure
+      };
+    }
+    root.querySelectorAll('[data-agent]').forEach((cb) => cb.addEventListener('change', async () => {
+      const agents = [...root.querySelectorAll('[data-agent]:checked')].map((x) => x.dataset.agent);
+      if (!agents.length) { cb.checked = true; return toast('Keep at least one agent enabled.', 'err'); }
+      cb.parentElement.classList.toggle('on', cb.checked);
+      if (!(await saveSettings({ agents }))) {
+        // Revert the checkbox (and its chip) to the last saved state.
+        cb.checked = state.settings.agents.includes(cb.dataset.agent);
+        cb.parentElement.classList.toggle('on', cb.checked);
+      }
+    }));
+
+    root.querySelectorAll('[data-save]').forEach((b) => b.onclick = async () => {
+      const p = b.dataset.save;
+      const key = $(`#key-${p}`).value.trim();
+      if (!key) return toast('Paste a key first.', 'err');
+      busyBtn(b, true);
+      try { await put(`/settings/keys/${encodeURIComponent(p)}`, { key }); }
+      catch (e) { toast(e.message, 'err'); busyBtn(b, false, 'Save'); return; }
+      toast('Key verified and saved', 'ok');
+      try { await refreshSettings(); } catch (e) { toast(e.message, 'err'); }
+      if (root.isConnected) paint();
+    });
+    root.querySelectorAll('[data-test]').forEach((b) => b.onclick = async () => {
+      busyBtn(b, true);
+      try { await post(`/settings/keys/${encodeURIComponent(b.dataset.test)}/test`); toast('Key works', 'ok'); } catch (e) { toast(e.message, 'err'); }
+      busyBtn(b, false, 'Test');
+    });
+    root.querySelectorAll('[data-remove]').forEach((b) => b.onclick = async () => {
+      if (!(await confirmDialog('Remove key?', 'The saved key will be deleted from the server.', 'Remove'))) return;
+      b.disabled = true;
+      try { await del(`/settings/keys/${encodeURIComponent(b.dataset.remove)}`); await refreshSettings(); if (root.isConnected) paint(); }
+      catch (e) { b.disabled = false; toast(e.message, 'err'); }
+    });
+
+    $('#saveName').onclick = async (e) => {
+      const b = e.currentTarget;
+      const name = $('#name').value.trim();
+      if (!name) return toast('Enter a name.', 'err');
+      busyBtn(b, true);
+      try { await put('/auth/profile', { name }); location.reload(); } // reload refreshes the sidebar user chip
+      catch (ex) { toast(ex.message, 'err'); busyBtn(b, false, 'Save'); }
+    };
+    $('#unlinkGh')?.addEventListener('click', async () => {
+      if (!(await confirmDialog('Disconnect GitHub?', 'You will no longer be able to sign in with GitHub or scan private repos via this connection.', 'Disconnect'))) return;
+      try { await del('/auth/github'); await refreshSession(); if (root.isConnected) paint(); } catch (e) { toast(e.message, 'err'); }
+    });
+    $('#savePw').onclick = async (e) => {
+      const b = e.currentTarget;
+      const cur = $('#curPw'), next = $('#newPw').value;
+      if (cur && !cur.value) return toast('Enter your current password.', 'err');
+      if (next.length < 8 || !/[A-Za-z]/.test(next) || !/\d/.test(next)) return toast('New password must be at least 8 characters with letters and numbers.', 'err');
+      busyBtn(b, true);
+      try {
+        // The server signs out other sessions and re-issues this browser's cookie.
+        await put('/auth/password', { currentPassword: cur?.value, newPassword: next });
+      } catch (ex) { toast(ex.message, 'err'); busyBtn(b, false, 'Update password'); return; }
+      toast('Password updated. Other devices were signed out.', 'ok');
+      try { await refreshSession(); } catch { /* keep the page; the next request re-checks the session */ }
+      if (root.isConnected && state.user) paint();
+    };
+    const theme = $('#theme');
+    theme.value = state.settings.theme || 'system';
+    theme.onchange = async () => {
+      applyTheme(theme.value);
+      if (!(await saveSettings({ theme: theme.value }))) { theme.value = state.settings.theme || 'system'; applyTheme(theme.value); }
+    };
+    $('#delAcct').onclick = async (e) => {
+      const b = e.currentTarget;
+      if (!(await confirmDialog('Delete your account?', 'All scans, findings and keys will be permanently deleted. This cannot be undone.', 'Delete account'))) return;
+      b.disabled = true;
+      try { await del('/auth/account'); } catch (ex) { b.disabled = false; toast(ex.message, 'err'); return; }
+      toast('Your account was deleted.', 'ok');
+      signedOut();
+    };
+  }
+}

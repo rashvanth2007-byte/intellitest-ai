@@ -1,0 +1,24 @@
+{
+  "name": "@intellitest/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch-path=src --disable-warning=ExperimentalWarning src/index.js",
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "yauzl": "^3.2.0"
+  }
+}

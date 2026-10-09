@@ -1,0 +1,12 @@
+**/node_modules
+.git
+data
+web/dist
+desktop/dist
+desktop/app
+desktop/build
+**/.env
+*.log
+**/.env.*
+!.env.example
+server/test

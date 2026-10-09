@@ -1,0 +1,35 @@
+# Render Blueprint — free web service. Data lives in an external PostgreSQL (Neon free tier),
+# because Render's free instances have an ephemeral disk.
+services:
+  - type: web
+    name: intellitest-ai
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY         # Render terminates TLS in front of the app
+        value: "1"
+      - key: DATABASE_URL        # paste your Neon connection string
+        sync: false
+      - key: APP_URL             # e.g. https://intellitest-ai.onrender.com
+        sync: false
+      - key: JWT_SECRET          # generated once by Render and kept across deploys
+        generateValue: true
+      - key: ENC_KEY
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: CONCURRENT_SCANS
+        value: "1"

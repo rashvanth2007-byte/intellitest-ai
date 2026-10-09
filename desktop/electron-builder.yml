@@ -1,0 +1,30 @@
+appId: ai.intellitest.desktop
+productName: IntelliTest AI
+copyright: Copyright © 2026 IntelliTest AI Team
+directories:
+  output: dist
+  buildResources: build
+files:
+  - main.js
+  - preload.cjs
+  - package.json
+  - "!electron-builder.config.cjs"
+  - app/**/*
+  - build/icon.png
+asar: true
+npmRebuild: false
+nodeGypRebuild: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: IntelliTest AI
+  artifactName: IntelliTest-AI-Setup-${version}.${ext}
+  deleteAppDataOnUninstall: false

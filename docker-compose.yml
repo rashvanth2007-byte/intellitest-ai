@@ -1,0 +1,42 @@
+# Self-hosted / production-like run: app + PostgreSQL with a persistent volume.
+#   docker compose up --build      → http://localhost:8787
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: intellitest
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-password}
+      POSTGRES_DB: intellitest
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intellitest"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8787:10000"
+    environment:
+      NODE_ENV: production
+      APP_URL: ${APP_URL:-http://localhost:8787}
+      DATABASE_URL: postgres://intellitest:${POSTGRES_PASSWORD:-change-this-password}@db:5432/intellitest?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      ENC_KEY: ${ENC_KEY:?set ENC_KEY in .env}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      CONCURRENT_SCANS: ${CONCURRENT_SCANS:-2}
+      OSV_ENABLED: ${OSV_ENABLED:-true}
+    restart: unless-stopped
+
+volumes:
+  pgdata:
