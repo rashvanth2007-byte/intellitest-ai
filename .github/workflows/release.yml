@@ -1,5 +1,5 @@
 # Build + publish the Windows app whenever a version tag (v1.2.3) is pushed.
-# Installed apps auto-update from the GitHub Release this creates.
+# Installed apps auto-update from the GitHub Release this creates (they read latest.yml from it).
 name: Release desktop app
 
 on:
@@ -40,9 +40,26 @@ jobs:
         shell: bash
         run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version --workspace desktop
 
-      - name: Build and publish installer
-        run: npm run release:win
+      # Build only; the update feed (GH_OWNER/GH_REPO) is baked in. Uploading is done below in one step,
+      # because electron-builder's parallel uploader can create duplicate releases for the same tag.
+      - name: Build installer
+        run: npm run build:win
 
-      - name: Show result
+      - name: Write update manifest (latest.yml)
         shell: bash
-        run: ls -la desktop/dist
+        run: test -f desktop/dist/latest.yml || node desktop/scripts/latest-yml.mjs
+
+      - name: Publish GitHub Release
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./desktop/package.json').version")
+          TAG="v${VERSION}"
+          cd desktop/dist
+          FILES=("IntelliTest-AI-Setup-${VERSION}.exe" "IntelliTest-AI-Setup-${VERSION}.exe.blockmap" "latest.yml")
+          ls -la "${FILES[@]}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "${FILES[@]}" --repo "$GITHUB_REPOSITORY" \
+              --title "IntelliTest AI ${VERSION}" --generate-notes --latest
+          fi
