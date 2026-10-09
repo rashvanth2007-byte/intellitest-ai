@@ -90,4 +90,9 @@ export const migrations = [
     name: 'session version for revocable sessions',
     up: ['ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0'],
   },
+  {
+    version: 3,
+    name: 'app-wide configuration set from the UI (e.g. GitHub OAuth app)',
+    up: ['CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at BIGINT NOT NULL)'],
+  },
 ];

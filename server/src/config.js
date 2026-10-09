@@ -83,6 +83,9 @@ export const config = {
     concurrentScans: int(env.CONCURRENT_SCANS, 2),
   },
   allowRegistration: env.ALLOW_REGISTRATION !== 'false',
+  // Lets signed-in users change server-wide settings (GitHub OAuth app) from the UI.
+  // On by default for localhost/dev and set by the desktop app; off on public servers.
+  allowLocalAdmin: env.ALLOW_LOCAL_ADMIN ? env.ALLOW_LOCAL_ADMIN === 'true' : !isProd,
   trustProxy: /^\d+$/.test(env.TRUST_PROXY || '') ? Number(env.TRUST_PROXY) : env.TRUST_PROXY === 'true',
   allowedHosts: (env.ALLOWED_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
   osvEnabled: env.OSV_ENABLED !== 'false',

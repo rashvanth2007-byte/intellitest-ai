@@ -10,6 +10,7 @@ import { loadUser, csrfGuard } from './auth/session.js';
 import { authRouter } from './auth/routes.js';
 import { scanRouter } from './scan/routes.js';
 import { settingsRouter } from './settings/routes.js';
+import { loadAppConfig } from './settings/appConfig.js';
 import { recoverInterrupted } from './scan/jobs.js';
 import { HttpError } from './util/http.js';
 
@@ -79,6 +80,7 @@ export function createApp() {
 export async function startServer({ port = config.port, host = config.host } = {}) {
   await openDb(config);
   await recoverInterrupted();
+  await loadAppConfig();
   const app = createApp();
   const server = await new Promise((resolve, reject) => {
     const s = app.listen(port, host, () => resolve(s));

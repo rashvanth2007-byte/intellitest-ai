@@ -68,6 +68,7 @@ async function boot() {
     PORT: String(port),
     HOST: '127.0.0.1',
     ALLOWED_HOSTS: `127.0.0.1:${port},localhost:${port}`,
+    ALLOW_LOCAL_ADMIN: 'true', // single-user desktop: allow setting up GitHub sign-in from Settings
   });
 
   const { startServer } = await import('./app/server.mjs');

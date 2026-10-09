@@ -1,5 +1,5 @@
 import { put, del, post } from '../lib/api.js';
-import { esc, icon, toast, confirmDialog, applyTheme, fmtTime, initials, safeUrl } from '../lib/ui.js';
+import { esc, icon, toast, confirmDialog, applyTheme, fmtTime, initials, safeUrl, modal } from '../lib/ui.js';
 import { state, refreshSettings, refreshSession, signedOut } from '../main.js';
 
 const KEY_INFO = {
@@ -73,12 +73,19 @@ export async function renderSettings(root) {
               <div class="key-row" style="margin-top:6px"><input class="input" id="name" value="${esc(u.name)}" maxlength="80" aria-label="Display name"><button class="btn btn-ghost btn-sm" id="saveName">Save</button></div></div>
           </div>
           <div class="set-row">
-            <div class="set-info"><h4>GitHub</h4><p>${u.github ? `Connected as <b>@${esc(u.github.login)}</b>${/\brepo\b/.test(u.github.scope || '') ? ' with private repo access.' : '. Grant repo access to scan private repositories.'}` : 'Connect GitHub to sign in with it and scan private repositories.'}</p></div>
+            <div class="set-info"><h4>GitHub</h4><p>${u.github ? `Connected as <b>@${esc(u.github.login)}</b>${/\brepo\b/.test(u.github.scope || '') ? ' with private repo access.' : '. Grant repo access to scan private repositories.'}` : 'Connect GitHub to sign in with it and scan private repositories.'}
+              ${k.github?.user ? '<br><span style="color:var(--ok)">● Private repo scanning is already enabled through your personal access token (above).</span>' : ''}</p></div>
             <div class="btn-row">${state.providers.github
               ? (u.github ? `${/\brepo\b/.test(u.github.scope || '') ? '' : '<a class="btn btn-ghost btn-sm" href="/api/auth/github/start?scope=repo">Grant repo access</a>'}<button class="btn btn-ghost btn-sm" id="unlinkGh">Disconnect</button>`
                 : '<a class="btn btn-github btn-sm" href="/api/auth/github/start">' + icon('github') + 'Connect</a>')
-              : '<span class="dim" style="font-size:12px">Not configured on this server</span>'}</div>
+              : state.githubOAuth?.canConfigure
+                ? `<button class="btn btn-ghost btn-sm" id="setupGh">${icon('github')}Set up GitHub sign-in</button>`
+                : '<span class="dim" style="font-size:12px">Ask the server admin to enable GitHub sign-in</span>'}</div>
           </div>
+          ${state.githubOAuth?.configured && state.githubOAuth?.source === 'app' && state.githubOAuth?.canConfigure ? `<div class="set-row">
+            <div class="set-info"><h4>GitHub sign-in app</h4><p>Using OAuth app <span class="mono">${esc(state.githubOAuth.clientId)}</span>. Callback URL: <span class="mono">${esc(state.githubOAuth.callbackUrl)}</span></p></div>
+            <div class="btn-row"><button class="btn btn-ghost btn-sm" id="setupGh">Change</button><button class="btn btn-ghost btn-sm" id="removeGhApp">Remove</button></div>
+          </div>` : ''}
           <div class="set-row" style="flex-direction:column;align-items:stretch">
             <div class="set-info"><h4>${u.hasPassword ? 'Change password' : 'Set a password'}</h4><p>At least 8 characters with letters and numbers.</p></div>
             <div class="grid-2">
@@ -111,6 +118,47 @@ export async function renderSettings(root) {
     </div>`;
     wire();
     wireAbout();
+  }
+
+  /** Guided set-up of the GitHub OAuth app used for "Sign in with GitHub". */
+  async function setupGithubSignIn(prev = {}) {
+    const g = state.githubOAuth || {};
+    const copyRow = (label, value) => `<div class="field"><span class="field-label">${label}</span>
+      <div class="key-row"><input class="input mono" readonly value="${esc(value)}" aria-label="${label}"><button class="btn btn-ghost btn-sm" type="button" data-copyval="${esc(value)}">Copy</button></div></div>`;
+    const pending = modal({
+      title: 'Set up "Sign in with GitHub"',
+      wide: true,
+      body: `<ol style="margin:0 0 14px 18px;display:flex;flex-direction:column;gap:6px">
+          <li>Open <a href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer">github.com → Settings → Developer settings → OAuth Apps → New OAuth App</a>.</li>
+          <li>Application name: <b>IntelliTest AI</b>. Copy the two URLs below into <b>Homepage URL</b> and <b>Authorization callback URL</b>, then click <b>Register application</b>.</li>
+          <li>Click <b>Generate a new client secret</b>, then paste the <b>Client ID</b> and the <b>Client secret</b> here.</li>
+        </ol>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${copyRow('Homepage URL', g.homepageUrl || location.origin)}
+          ${copyRow('Authorization callback URL', g.callbackUrl || `${location.origin}/api/auth/github/callback`)}
+          <div class="field"><label class="field-label" for="ghClientId">Client ID</label><input class="input mono" id="ghClientId" placeholder="Ov23li…" autocomplete="off" spellcheck="false" value="${esc(prev.clientId || '')}"></div>
+          <div class="field"><label class="field-label" for="ghClientSecret">Client secret</label><input class="input mono" id="ghClientSecret" type="password" placeholder="40-character secret" autocomplete="off" spellcheck="false"></div>
+          <p class="hint">The secret is checked with GitHub, then stored encrypted on this computer. ${window.intellitestDesktop ? 'Keep the app on port 47821 (the default) so the callback URL stays the same.' : ''}</p>
+        </div>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Save & verify', value: true, cls: 'btn-primary' }],
+    });
+    // The dialog is in the DOM synchronously: keep references to its inputs and wire the copy buttons.
+    const idIn = document.getElementById('ghClientId');
+    const secretIn = document.getElementById('ghClientSecret');
+    document.querySelectorAll('[data-copyval]').forEach((b) => { b.onclick = () => navigator.clipboard?.writeText(b.dataset.copyval).then(() => { b.textContent = 'Copied ✓'; }).catch(() => {}); });
+    if (!(await pending)) return;
+    const clientId = idIn.value.trim(), clientSecret = secretIn.value.trim();
+    if (!clientId || !clientSecret) { toast('Paste both the Client ID and the Client secret.', 'err'); return setupGithubSignIn({ clientId }); }
+    toast('Checking with GitHub…', '', 2500);
+    try {
+      await put('/settings/github-oauth', { clientId, clientSecret });
+    } catch (e) {
+      toast(e.message, 'err', 8000);
+      return setupGithubSignIn({ clientId });
+    }
+    await refreshSession();
+    if (root.isConnected) paint();
+    toast('GitHub sign-in is ready. Click "Connect" to link your GitHub account.', 'ok', 7000);
   }
 
   /** Desktop-only bridge (desktop/preload.cjs): version + manual update check. */
@@ -191,6 +239,13 @@ export async function renderSettings(root) {
       try { await put('/auth/profile', { name }); location.reload(); } // reload refreshes the sidebar user chip
       catch (ex) { toast(ex.message, 'err'); busyBtn(b, false, 'Save'); }
     };
+    $('#setupGh')?.addEventListener('click', () => setupGithubSignIn());
+    $('#removeGhApp')?.addEventListener('click', async (e) => {
+      if (!(await confirmDialog('Remove GitHub sign-in?', 'The "Continue with GitHub" button disappears. Accounts and scans are kept; users who only signed in with GitHub will need to set a password.', 'Remove'))) return;
+      e.target.disabled = true;
+      try { await del('/settings/github-oauth'); await refreshSession(); if (root.isConnected) paint(); toast('GitHub sign-in removed', 'ok'); }
+      catch (ex) { e.target.disabled = false; toast(ex.message, 'err'); }
+    });
     $('#unlinkGh')?.addEventListener('click', async () => {
       if (!(await confirmDialog('Disconnect GitHub?', 'You will no longer be able to sign in with GitHub or scan private repos via this connection.', 'Disconnect'))) return;
       try { await del('/auth/github'); await refreshSession(); if (root.isConnected) paint(); } catch (e) { toast(e.message, 'err'); }

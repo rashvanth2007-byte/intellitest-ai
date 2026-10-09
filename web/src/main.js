@@ -2,7 +2,7 @@ import './styles.css';
 import { get, post, setUnauthorizedHandler } from './lib/api.js';
 import { esc, icon, initials, initTheme, applyTheme, toast, safeUrl } from './lib/ui.js';
 import { renderAuth } from './pages/auth.js';
-import { renderScanner } from './pages/scanner.js';
+import { renderScanner, clearScannerDraft } from './pages/scanner.js';
 import { renderDashboard } from './pages/dashboard.js';
 import { renderHistory } from './pages/history.js';
 import { renderScanPage } from './pages/scan.js';
@@ -43,6 +43,7 @@ export async function refreshSettings() {
   state.settings = s.settings;
   state.keys = s.keys;
   state.options = s.options;
+  state.githubOAuth = s.githubOAuth || null;
   applyTheme(s.settings.theme);
   updateEnginePill();
 }
@@ -154,6 +155,7 @@ function sessionStorageTake(k) { try { const v = sessionStorage.getItem(k); sess
 /** Forget everything about the previous user and show the sign-in page (logout, account deletion). */
 export function signedOut() {
   Object.assign(state, { user: null, settings: null, keys: null, options: null });
+  clearScannerDraft(); // the next user must not see this user's selected files
   sessionStorageTake('it_after_login'); // never carry one user's deep link over to the next sign-in
   app.innerHTML = '';
   navigate('#/login');
@@ -169,6 +171,7 @@ setUnauthorizedHandler(() => {
   if (!state.user) return;
   const here = location.hash;
   Object.assign(state, { user: null, settings: null, keys: null, options: null });
+  clearScannerDraft(); // the next user must not see this user's selected files
   toast('Your session expired or was signed out elsewhere — please sign in again.', 'err');
   if (here && !/^#\/(login|register)/.test(here)) sessionStorageSet('it_after_login', here); // come back here after signing in
   app.innerHTML = '';

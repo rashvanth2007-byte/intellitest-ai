@@ -28,6 +28,15 @@ function guessFilename(code) {
   return 'snippet.txt';
 }
 
+/**
+ * What the user has prepared on this page. Kept at module level so it survives navigating to other
+ * pages and back (the page itself is rebuilt on every visit). Cleared on sign-out.
+ */
+const draft = { tab: 'upload', picked: [], skipped: null, ghUrl: '', code: '', lang: 'auto', scanId: null };
+export function clearScannerDraft() {
+  Object.assign(draft, { tab: 'upload', picked: [], skipped: null, ghUrl: '', code: '', lang: 'auto', scanId: null });
+}
+
 /** Recursively read dropped folders (DataTransferItem.webkitGetAsEntry). */
 async function readEntries(items) {
   const out = [];
@@ -53,8 +62,6 @@ async function readEntries(items) {
 
 export function renderScanner(root) {
   const eng = engineSummary();
-  let tab = 'upload';
-  let picked = []; // { file, path }
   let stopLive = null;
   let disposed = false;
   const gh = state.user.github;
@@ -131,10 +138,13 @@ export function renderScanner(root) {
 
   // Tabs
   root.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
-    tab = b.dataset.tab;
-    root.querySelectorAll('[data-tab]').forEach((x) => { x.classList.toggle('active', x === b); x.setAttribute('aria-selected', String(x === b)); });
-    root.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== tab));
+    showTab(b.dataset.tab);
   }));
+  function showTab(t) {
+    draft.tab = t;
+    root.querySelectorAll('[data-tab]').forEach((x) => { const on = x.dataset.tab === t; x.classList.toggle('active', on); x.setAttribute('aria-selected', String(on)); });
+    root.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.panel !== t));
+  }
 
   // File picking
   const setPicked = (list) => {
@@ -149,11 +159,19 @@ export function renderScanner(root) {
       seen.add(p);
       keep.push({ file: it.file, path: p });
     }
-    picked = keep;
+    draft.picked = keep;
+    draft.skipped = list.length ? skipped : null;
+    showPicked();
+  };
+
+  /** Render the current selection (also used to restore it when returning to this page). */
+  const showPicked = () => {
+    const picked = draft.picked;
+    const skipped = draft.skipped || { ignored: 0, binary: 0 };
     const total = picked.reduce((n, x) => n + x.file.size, 0);
     const box = $('#picked');
     if (!picked.length) {
-      box.innerHTML = list.length ? `<p class="hint">No scannable files in the selection (${skipped.binary} binary, ${skipped.ignored} in ignored folders).</p>` : '';
+      box.innerHTML = draft.skipped ? `<p class="hint">No scannable files in the selection (${skipped.binary} binary, ${skipped.ignored} in ignored folders).</p>` : '';
       return;
     }
     box.innerHTML = `
@@ -162,7 +180,7 @@ export function renderScanner(root) {
       <div class="hint" style="margin-top:6px">${picked.length} file${picked.length > 1 ? 's' : ''} · ${fmtBytes(total)}${skipped.binary + skipped.ignored ? ` · skipped ${skipped.binary + skipped.ignored}` : ''}
         ${total > MAX_TOTAL ? '<br><span style="color:var(--critical)">Too large — upload at most 100 MB. Try a .zip or a sub-folder.</span>' : ''}</div>
       <button class="btn btn-ghost btn-sm btn-block" id="clearPicked" style="margin-top:8px">${icon('x')}Clear selection</button>`;
-    $('#clearPicked').onclick = () => { picked = []; $('#fiFiles').value = ''; $('#fiFolder').value = ''; setPicked([]); };
+    $('#clearPicked').onclick = () => { $('#fiFiles').value = ''; $('#fiFolder').value = ''; setPicked([]); };
   };
 
   const dz = $('#dropZone');
@@ -205,7 +223,8 @@ export function renderScanner(root) {
     let created;
     try {
       busy(true);
-      if (tab === 'upload') {
+      const picked = draft.picked;
+      if (draft.tab === 'upload') {
         if (!picked.length) throw new Error('Choose files, a folder or a .zip first.');
         if (picked.reduce((n, x) => n + x.file.size, 0) > MAX_TOTAL) throw new Error('Selection is larger than 100 MB.');
         const fd = new FormData();
@@ -217,7 +236,7 @@ export function renderScanner(root) {
         bar.classList.remove('hidden');
         created = await upload('/scans', fd, (p) => { bar.firstElementChild.style.width = `${Math.round(p * 100)}%`; });
         bar.classList.add('hidden');
-      } else if (tab === 'github') {
+      } else if (draft.tab === 'github') {
         const url = $('#ghUrl').value.trim();
         if (!/github\.com[/:][\w.-]+\/[\w.-]+/i.test(url) && !/^[\w.-]+\/[\w.-]+$/.test(url)) throw new Error('Enter a GitHub repository URL like https://github.com/owner/repo');
         created = await post('/scans', { kind: 'github', url });
@@ -237,7 +256,9 @@ export function renderScanner(root) {
     watch(created.id);
   };
 
-  function watch(id) {
+  function watch(id, restoring = false) {
+    draft.scanId = id;
+    busy(true);
     results.innerHTML = '';
     const live = document.createElement('div');
     results.appendChild(live);
@@ -245,18 +266,35 @@ export function renderScanner(root) {
       stopLive = null;
       busy(false);
       if (done.status !== 'completed') {
+        if (done.status !== 'disconnected') draft.scanId = null;
         results.innerHTML = `${agentsRow(null)}<div class="card empty-state">${icon('alert')}<h3>Scan ${esc(done.status)}</h3><p>${esc(done.error || '')}</p></div>`;
         return;
       }
       let scan;
-      try { scan = await get(`/scans/${encodeURIComponent(id)}`); } catch (e) { if (!disposed) toast(e.message, 'err'); return; }
+      try { scan = await get(`/scans/${encodeURIComponent(id)}`); } catch (e) {
+        if (e.status === 404) draft.scanId = null; // deleted from History meanwhile
+        if (!disposed) { toast(e.message, 'err'); results.innerHTML = `${agentsRow(null)}`; }
+        return;
+      }
       if (disposed) return; // navigated away: don't pop the alert modal on another page
       results.innerHTML = `<div class="btn-row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
         <b style="font-size:13px">${esc(scan.label)}</b><a class="btn btn-ghost btn-sm" href="#/scan/${encodeURIComponent(id)}">Open report page →</a></div><div id="rep"></div>`;
       renderReport(results.querySelector('#rep'), scan);
-      maybeAlert(scan, state.settings?.alertThreshold || 'critical');
+      if (!restoring) maybeAlert(scan, state.settings?.alertThreshold || 'critical');
     });
   }
+
+  // 4. Restore the draft when coming back to this page.
+  showTab(draft.tab);
+  showPicked();
+  const ghUrl = $('#ghUrl'), codeIn = $('#codeIn'), langSel = $('#lang');
+  ghUrl.value = draft.ghUrl;
+  codeIn.value = draft.code;
+  langSel.value = draft.lang;
+  ghUrl.addEventListener('input', () => { draft.ghUrl = ghUrl.value; });
+  codeIn.addEventListener('input', () => { draft.code = codeIn.value; });
+  langSel.addEventListener('change', () => { draft.lang = langSel.value; });
+  if (draft.scanId) watch(draft.scanId, true);
 
   return () => { disposed = true; stopLive?.(); };
 }

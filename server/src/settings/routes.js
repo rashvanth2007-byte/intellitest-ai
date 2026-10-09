@@ -5,6 +5,7 @@ import { getSettings, saveSettings, sanitizeSettings, setApiKey, keyStatus, PROV
 import { CLAUDE_MODELS, GEMINI_MODELS, testKey } from '../engines/ai/providers.js';
 import { DEPTHS } from '../engines/ai/chunker.js';
 import { AGENTS } from '../engines/ai/agents.js';
+import { githubOAuthStatus, saveGithubOAuth, removeGithubOAuth } from './appConfig.js';
 
 export const settingsRouter = Router();
 settingsRouter.use(requireAuth);
@@ -19,7 +20,19 @@ settingsRouter.get('/', ah(async (req, res) => {
       depths: Object.entries(DEPTHS).map(([id, d]) => ({ id, label: d.label })),
       agents: AGENTS.map(({ id, name, role }) => ({ id, name, role })),
     },
+    githubOAuth: githubOAuthStatus(),
   });
+}));
+
+/* GitHub OAuth app for "Sign in with GitHub" (local / desktop installs only). */
+settingsRouter.put('/github-oauth', ah(async (req, res) => {
+  await saveGithubOAuth(req.body?.clientId, req.body?.clientSecret);
+  res.json({ githubOAuth: githubOAuthStatus() });
+}));
+
+settingsRouter.delete('/github-oauth', ah(async (req, res) => {
+  await removeGithubOAuth();
+  res.json({ githubOAuth: githubOAuthStatus() });
 }));
 
 settingsRouter.put('/', ah(async (req, res) => {
