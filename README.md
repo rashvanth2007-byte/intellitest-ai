@@ -10,6 +10,11 @@ Runs three ways from one codebase:
 | **Windows app** | `npm run build:win` → `desktop/dist/IntelliTest-AI-Setup-1.0.0.exe` | SQLite in `%APPDATA%\IntelliTest AI` |
 | **Cloud** | Docker → Render (free) + Neon Postgres (free) — see [DEPLOY.md](DEPLOY.md) | PostgreSQL |
 
+## Download
+
+- **Windows app:** https://rashvanth2007-byte.github.io/intellitest-ai/ (auto-updates)
+- **All releases:** https://github.com/rashvanth2007-byte/intellitest-ai/releases
+
 ## What it checks
 
 Every scan runs four engines, then merges, de-duplicates and scores the results (A–F, 0–100):

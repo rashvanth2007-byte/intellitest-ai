@@ -1,60 +1,71 @@
-# Publish a new IntelliTest AI desktop release to GitHub Releases (installed apps auto-update from it).
+# Publish a new IntelliTest AI release. Installed apps auto-update; the download page always shows the newest version.
 #
-#   .\release.ps1                 # bump patch version (1.0.0 -> 1.0.1) and publish
+#   .\release.ps1                 # bump 1.0.0 -> 1.0.1, test, commit, tag and push — GitHub Actions builds and publishes it
 #   .\release.ps1 -Bump minor     # 1.0.1 -> 1.1.0
-#   .\release.ps1 -Bump none      # publish the current version (use for the very first release)
-#   .\release.ps1 -Manual         # no token: build + latest.yml, then upload the 3 files on github.com yourself
+#   .\release.ps1 -Bump none      # release the current version as-is (use for the very first release, v1.0.0)
 #
-# Needs: a GitHub repo for the releases and a token with "Contents: read and write" on it.
+# Alternatives (run on this PC instead of GitHub Actions):
+#   .\release.ps1 -Local          # build here and upload with a GitHub token (asks for it, input hidden)
+#   .\release.ps1 -Manual         # build here, then upload the 3 files on github.com yourself (no token)
 param(
   [ValidateSet('patch', 'minor', 'major', 'none')] [string]$Bump = 'patch',
-  [string]$Owner = $env:GH_OWNER,
-  [string]$Repo = $env:GH_REPO,
+  [string]$Owner = 'rashvanth2007-byte',
+  [string]$Repo = 'intellitest-ai',
+  [switch]$Local,
   [switch]$Manual
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
-
-if (-not $Owner) { $Owner = Read-Host 'GitHub username / organisation that owns the releases repo' }
-if (-not $Repo)  { $Repo  = Read-Host 'GitHub repository name (e.g. intellitest-ai)' }
-if (-not $Manual -and -not $env:GH_TOKEN) {
-  $secure = Read-Host 'GitHub token (input hidden)' -AsSecureString
-  $env:GH_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
-}
 $env:GH_OWNER = $Owner
 $env:GH_REPO = $Repo
 
-if ($Bump -ne 'none') {
-  npm version $Bump --no-git-tag-version --workspace desktop | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'Version bump failed' }
+function Run($cmd) { Write-Host "> $cmd" -ForegroundColor DarkGray; Invoke-Expression $cmd; if ($LASTEXITCODE -ne 0) { throw "Failed: $cmd" } }
+
+if (-not $Local -and -not $Manual) {
+  $dirty = git status --porcelain
+  if ($dirty) { throw "You have uncommitted changes. Commit them first:`n  git add -A`n  git commit -m ""describe your change""" }
 }
+
+if ($Bump -ne 'none') { Run "npm version $Bump --no-git-tag-version --workspace desktop" }
 $version = (Get-Content desktop\package.json -Raw | ConvertFrom-Json).version
-Write-Host "Testing before release $version ..." -ForegroundColor Cyan
-npm test
-if ($LASTEXITCODE -ne 0) { throw 'Tests failed - release aborted' }
+$tag = "v$version"
+
+Write-Host "Testing $version ..." -ForegroundColor Cyan
+Run 'npm test'
 
 if ($Manual) {
-  Write-Host "Building IntelliTest AI $version (update feed: github.com/$Owner/$Repo) ..." -ForegroundColor Cyan
-  npm run build:win
-  if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-  node desktop\scripts\latest-yml.mjs
-  if ($LASTEXITCODE -ne 0) { throw 'Could not write latest.yml' }
-  Write-Host ""
-  Write-Host "Now upload these 3 files from desktop\dist to a new release tagged v$version :" -ForegroundColor Green
-  Write-Host "  IntelliTest-AI-Setup-$version.exe"
-  Write-Host "  IntelliTest-AI-Setup-$version.exe.blockmap"
-  Write-Host "  latest.yml"
+  Run 'npm run build:win'
+  Run 'node desktop\scripts\latest-yml.mjs'
+  Write-Host "`nUpload these 3 files from desktop\dist to a new release tagged $tag :" -ForegroundColor Green
+  Write-Host "  IntelliTest-AI-Setup-$version.exe`n  IntelliTest-AI-Setup-$version.exe.blockmap`n  latest.yml"
   Start-Process explorer.exe (Resolve-Path desktop\dist)
-  Start-Process "https://github.com/$Owner/$Repo/releases/new?tag=v$version&title=IntelliTest%20AI%20$version"
+  Start-Process "https://github.com/$Owner/$Repo/releases/new?tag=$tag&title=IntelliTest%20AI%20$version"
   return
 }
 
-Write-Host "Building and publishing IntelliTest AI $version to github.com/$Owner/$Repo ..." -ForegroundColor Cyan
-npm run release:win
-if ($LASTEXITCODE -ne 0) {
-  throw 'Release failed. Scroll up for the first red "HttpError" line. 401 = wrong token; 403 = token lacks "Contents: Read and write" on this repo. Or run: .\release.ps1 -Manual'
+if ($Local) {
+  if (-not $env:GH_TOKEN) {
+    $secure = Read-Host 'GitHub token (input hidden)' -AsSecureString
+    $env:GH_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+  }
+  npm run release:win
+  if ($LASTEXITCODE -ne 0) { throw 'Upload failed. Scroll up for the first red HttpError line: 401 = wrong token, 403 = token lacks Contents: Read and write.' }
+  Write-Host "`nPublished $tag : https://github.com/$Owner/$Repo/releases" -ForegroundColor Green
+  return
 }
 
-Write-Host ""
-Write-Host "Done. Open https://github.com/$Owner/$Repo/releases to review the release notes." -ForegroundColor Green
-Write-Host "Installed apps will offer version $version on their next start (or Help > Check for updates)."
+# Default: let GitHub Actions build and publish (.github/workflows/release.yml).
+if (git tag --list $tag) { throw "Tag $tag already exists. Use a higher version (.\release.ps1 -Bump patch)." }
+if ($Bump -ne 'none') {
+  Run 'git add desktop/package.json package-lock.json'
+  Run "git commit -m ""Release $tag"""
+}
+Run "git tag -a $tag -m ""IntelliTest AI $version"""
+Run 'git push origin main'
+Run "git push origin $tag"
+
+Write-Host "`nPushed $tag. GitHub is now building and publishing it (about 5-10 minutes):" -ForegroundColor Green
+Write-Host "  Progress:      https://github.com/$Owner/$Repo/actions"
+Write-Host "  Release:       https://github.com/$Owner/$Repo/releases/tag/$tag"
+Write-Host "  Download page: https://$Owner.github.io/$Repo/"
+Start-Process "https://github.com/$Owner/$Repo/actions"

@@ -85,3 +85,12 @@ Every release:
 Notes:
 - `GH_OWNER`/`GH_REPO` must also be set when you build the **first** installer you hand out (`npm run build:win`) — the update address is baked into each build. Installers built without them can't auto-update; users reinstall once from a build that has them.
 - Unsigned builds update fine, but Windows SmartScreen may warn on first install. A code-signing certificate removes the warning.
+
+### Recommended: automatic releases with GitHub Actions
+`.github/workflows/release.yml` builds and publishes the Windows installer on GitHub's servers whenever a version tag is pushed — no local build and no personal token (it uses the built-in `GITHUB_TOKEN`).
+
+```powershell
+.\release.ps1            # bump version, test, commit, tag, push -> GitHub builds + publishes
+```
+
+`.github/workflows/pages.yml` publishes the download page in `site/` to **https://rashvanth2007-byte.github.io/intellitest-ai/**. It always links to the newest installer. One-time setup: repo **Settings → Pages → Source: GitHub Actions**. Once the web version is deployed (Render), put its URL in `WEB_APP_URL` at the bottom of `site/index.html` to show an "Open in browser" button.
