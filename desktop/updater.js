@@ -2,51 +2,69 @@
  * Auto-update via electron-updater + GitHub Releases.
  * Bundled by scripts/bundle.mjs into app/updater.mjs (the packaged app has no node_modules).
  *
- * Flow: check on start-up and from Help → Check for updates → ask before downloading →
- * show progress on the taskbar → ask to restart and install.
+ * The current status is pushed to the UI (Settings → About & updates shows it next to the button):
+ *   idle → checking → available → downloading (percent, MB, speed) → downloaded → (restart)
+ *   or   → up-to-date / error
+ * Start-up checks and Help → Check for updates use native dialogs; the Settings button is
+ * "inline": no dialogs, the UI shows the status and the Download / Restart buttons instead.
  */
-import { app, dialog } from 'electron';
+import { app, dialog, BrowserWindow } from 'electron';
 import updaterPkg from 'electron-updater';
 
 const { autoUpdater } = updaterPkg;
 
 let getWindow = () => null;
-let busy = false;
-let manual = false;
+let manual = false;   // show "up to date" / error dialogs
+let inline = false;   // the Settings page drives the flow: no dialogs at all
+
+let status = { phase: 'idle', current: app.getVersion() };
+
+function setStatus(patch) {
+  status = { ...status, ...patch, current: app.getVersion(), at: Date.now() };
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('update:status', status);
+  }
+}
+export const getStatus = () => status;
 
 const box = (opts) => dialog.showMessageBox(getWindow() || undefined, { title: 'IntelliTest AI updates', noLink: true, ...opts });
+const busy = () => ['checking', 'downloading'].includes(status.phase);
 
 export function initUpdater(windowGetter) {
   getWindow = windowGetter;
   autoUpdater.autoDownload = false;          // always ask first
   autoUpdater.autoInstallOnAppQuit = true;   // a downloaded update installs on next quit anyway
 
+  autoUpdater.on('checking-for-update', () => setStatus({ phase: 'checking', message: null }));
+
   autoUpdater.on('update-available', async (info) => {
+    setStatus({ phase: 'available', version: info.version, notes: stripHtml(info.releaseNotes).slice(0, 800), percent: 0 });
+    if (inline) return; // the Settings page shows a Download button
     const { response } = await box({
       type: 'info',
       message: `IntelliTest AI ${info.version} is available`,
-      detail: `You have ${app.getVersion()}. Download and install the update now?\n\n${stripHtml(info.releaseNotes).slice(0, 800)}`,
+      detail: `You have ${app.getVersion()}. Download and install the update now?\n\n${status.notes || ''}`,
       buttons: ['Download', 'Later'],
       defaultId: 0,
       cancelId: 1,
     });
-    if (response === 0) {
-      autoUpdater.downloadUpdate().catch((e) => fail(e));
-    } else {
-      busy = false;
-    }
+    if (response === 0) downloadUpdate();
   });
 
   autoUpdater.on('update-not-available', () => {
-    busy = false;
-    if (manual) box({ type: 'info', message: 'You are up to date', detail: `IntelliTest AI ${app.getVersion()} is the latest version.` });
+    setStatus({ phase: 'up-to-date', version: null });
+    if (manual && !inline) box({ type: 'info', message: 'You are up to date', detail: `IntelliTest AI ${app.getVersion()} is the latest version.` });
   });
 
-  autoUpdater.on('download-progress', (p) => getWindow()?.setProgressBar(Math.max(0.01, p.percent / 100)));
+  autoUpdater.on('download-progress', (p) => {
+    getWindow()?.setProgressBar(Math.max(0.01, p.percent / 100));
+    setStatus({ phase: 'downloading', percent: p.percent, transferred: p.transferred, total: p.total, bytesPerSecond: p.bytesPerSecond });
+  });
 
   autoUpdater.on('update-downloaded', async (info) => {
     getWindow()?.setProgressBar(-1);
-    busy = false;
+    setStatus({ phase: 'downloaded', version: info.version, percent: 100 });
+    if (inline) return; // the Settings page shows "Restart & install"
     const { response } = await box({
       type: 'info',
       message: `Update ${info.version} is ready`,
@@ -55,43 +73,63 @@ export function initUpdater(windowGetter) {
       defaultId: 0,
       cancelId: 1,
     });
-    if (response === 0) setImmediate(() => autoUpdater.quitAndInstall(false, true));
+    if (response === 0) installUpdate();
   });
 
   autoUpdater.on('error', (e) => fail(e));
 }
 
 function fail(e) {
-  busy = false;
   getWindow()?.setProgressBar(-1);
   console.error('[updater]', e?.message || e);
-  if (manual) box({ type: 'warning', message: 'Could not check for updates', detail: friendly(e) });
+  setStatus({ phase: 'error', message: friendly(e) });
+  if (manual && !inline) box({ type: 'warning', message: 'Could not update', detail: friendly(e) });
 }
 
 function friendly(e) {
   const m = String(e?.message || e);
-  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|net::/i.test(m)) return 'No internet connection. Try again later.';
-  if (/404|latest\.yml|No published versions/i.test(m)) return 'No published release was found yet. (Publish one with "npm run release:win".)';
-  if (/app-update\.yml/i.test(m)) return 'This build was made without update information. Rebuild it with GH_OWNER and GH_REPO set.';
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|net::/i.test(m)) return 'No internet connection. Try again later.';
+  if (/404|latest\.yml|No published versions/i.test(m)) return 'No published release was found yet.';
+  if (/app-update\.yml/i.test(m)) return 'This build was made without update information. Install the latest version from the download page once.';
+  if (/sha512|checksum/i.test(m)) return 'The download was corrupted. Please try again.';
   return m.slice(0, 300);
 }
 
 const stripHtml = (n) => (Array.isArray(n) ? n.map((x) => x.note).join('\n') : String(n || '')).replace(/<[^>]+>/g, '').trim();
 
-/** isManual: show "up to date" / error dialogs (Help menu, Settings button). */
-export async function checkForUpdates(isManual = false) {
+/**
+ * isManual: user asked (show "up to date" / errors). isInline: asked from the Settings page,
+ * which shows the status itself, so no dialogs.
+ */
+export async function checkForUpdates(isManual = false, isInline = false) {
   manual = isManual;
+  inline = isInline;
   if (!app.isPackaged) {
-    if (isManual) box({ type: 'info', message: 'Updates are only available in the installed app', detail: 'You are running a development build.' });
-    return { ok: false, reason: 'dev' };
+    setStatus({ phase: 'error', message: 'Updates are only available in the installed app (this is a development build).' });
+    if (isManual && !isInline) box({ type: 'info', message: 'Updates are only available in the installed app', detail: 'You are running a development build.' });
+    return status;
   }
-  if (busy) return { ok: true, reason: 'busy' };
-  busy = true;
+  if (busy() || status.phase === 'downloaded') return status;
+  setStatus({ phase: 'checking', message: null });
   try {
     await autoUpdater.checkForUpdates();
-    return { ok: true };
   } catch (e) {
     fail(e);
-    return { ok: false, reason: friendly(e) };
   }
+  return status;
+}
+
+export function downloadUpdate() {
+  if (status.phase !== 'available' && status.phase !== 'error') return status;
+  setStatus({ phase: 'downloading', percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
+  autoUpdater.downloadUpdate().catch((e) => fail(e));
+  return status;
+}
+
+export function installUpdate() {
+  if (status.phase !== 'downloaded') return status;
+  setStatus({ phase: 'installing' });
+  // Close silently and run the installer, then reopen the app.
+  setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  return status;
 }

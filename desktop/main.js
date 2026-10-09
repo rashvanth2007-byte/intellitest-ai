@@ -79,17 +79,24 @@ async function boot() {
   try {
     const updater = await import('./app/updater.mjs');
     updater.initUpdater(() => win);
-    checkUpdates = (manual) => updater.checkForUpdates(manual);
+    upd = updater;
+    checkUpdates = (manual, inline) => updater.checkForUpdates(manual, inline);
     setTimeout(() => checkUpdates(false), 8000);
   } catch (e) { console.error('[updater] unavailable', e.message); }
 }
 
+let upd = null;
+const NO_UPDATER = { phase: 'error', message: 'Updates are not available in this build.' };
 let checkUpdates = async (manual) => {
   if (manual) dialog.showMessageBox({ type: 'info', message: 'Updates are not available in this build.' });
-  return { ok: false };
+  return NO_UPDATER;
 };
 ipcMain.handle('app:version', () => app.getVersion());
-ipcMain.handle('update:check', () => checkUpdates(true));
+// From the Settings page: no dialogs, the page shows the live status next to the button.
+ipcMain.handle('update:check', () => (upd ? checkUpdates(true, true) : NO_UPDATER));
+ipcMain.handle('update:status', () => (upd ? upd.getStatus() : NO_UPDATER));
+ipcMain.handle('update:download', () => (upd ? upd.downloadUpdate() : NO_UPDATER));
+ipcMain.handle('update:install', () => (upd ? upd.installUpdate() : NO_UPDATER));
 
 function createWindow() {
   win = new BrowserWindow({

@@ -9,6 +9,7 @@ const KEY_INFO = {
 };
 
 export async function renderSettings(root) {
+  let aboutCleanup = null; // unsubscribes the desktop update-status listener
   await refreshSettings();
   paint();
 
@@ -113,6 +114,7 @@ export async function renderSettings(root) {
                 : 'You are using the web version — it updates automatically whenever a new version is deployed.'}</p></div>
             ${window.intellitestDesktop ? '<button class="btn btn-ghost btn-sm" id="checkUpdates">Check for updates</button>' : ''}
           </div>
+          ${window.intellitestDesktop ? '<div class="upd-status hidden" id="updStatus" role="status" aria-live="polite"></div>' : ''}
         </div>
       </div>
     </div>`;
@@ -163,15 +165,53 @@ export async function renderSettings(root) {
 
   /** Desktop-only bridge (desktop/preload.cjs): version + manual update check. */
   function wireAbout() {
+    aboutCleanup?.(); // paint() re-renders: drop the previous listener first
+    aboutCleanup = null;
     const d = window.intellitestDesktop;
     if (!d) return;
     d.getVersion().then((v) => { const el = root.querySelector('#appVersion'); if (el) el.textContent = `IntelliTest AI ${v} (desktop)`; }).catch(() => {});
     const btn = root.querySelector('#checkUpdates');
-    btn.onclick = async () => {
-      busyBtn(btn, true);
-      try { await d.checkForUpdates(); } catch (e) { toast(e.message, 'err'); }
-      busyBtn(btn, false, 'Check for updates');
+    const box = root.querySelector('#updStatus');
+    const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`;
+
+    // Render the live status (sent by desktop/updater.js) right under the button.
+    const show = (s) => {
+      if (!s || !box.isConnected) return;
+      const phase = s.phase || 'idle';
+      btn.disabled = ['checking', 'downloading', 'installing'].includes(phase);
+      btn.textContent = phase === 'checking' ? 'Checking…' : 'Check for updates';
+      if (phase === 'idle') { box.classList.add('hidden'); return; }
+      box.classList.remove('hidden');
+      box.dataset.phase = phase;
+      const pct = Math.max(0, Math.min(100, Math.round(s.percent || 0)));
+      const views = {
+        checking: `<div class="upd-line"><div class="spinner"></div><span>Checking for updates…</span></div>`,
+        'up-to-date': `<div class="upd-line ok">${icon('check')}<span>You're up to date — version <b>${esc(s.current)}</b> is the latest.</span></div>`,
+        available: `<div class="upd-line">${icon('download')}<span><b>Version ${esc(s.version)}</b> is available (you have ${esc(s.current)}).</span>
+            <button class="btn btn-primary btn-sm" id="updDownload">Download update</button></div>
+            ${s.notes ? `<div class="upd-notes">${esc(s.notes)}</div>` : ''}`,
+        downloading: `<div class="upd-line"><div class="spinner"></div><span>Downloading version <b>${esc(s.version || '')}</b>… <b>${pct}%</b></span></div>
+            <div class="progress upd-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><div style="width:${pct}%"></div></div>
+            <div class="upd-sub">${s.total ? `${mb(s.transferred)} of ${mb(s.total)}` : 'Starting download…'}${s.bytesPerSecond ? ` · ${mb(s.bytesPerSecond)}/s` : ''}</div>`,
+        downloaded: `<div class="upd-line ok">${icon('check')}<span>Version <b>${esc(s.version)}</b> is downloaded and ready to install.</span>
+            <button class="btn btn-primary btn-sm" id="updInstall">Restart &amp; install</button></div>
+            <div class="upd-sub">The app closes, installs the update and opens again. Your scans and settings are kept.</div>`,
+        installing: `<div class="upd-line"><div class="spinner"></div><span>Installing version <b>${esc(s.version || '')}</b>… the app will restart.</span></div>`,
+        error: `<div class="upd-line err">${icon('alert')}<span>${esc(s.message || 'Update failed.')}</span></div>`,
+      };
+      box.innerHTML = views[phase] || '';
+      box.querySelector('#updDownload')?.addEventListener('click', (e) => { e.currentTarget.disabled = true; d.downloadUpdate().then(show).catch((ex) => toast(ex.message, 'err')); });
+      box.querySelector('#updInstall')?.addEventListener('click', (e) => { e.currentTarget.disabled = true; d.installUpdate().then(show).catch((ex) => toast(ex.message, 'err')); });
     };
+
+    btn.onclick = async () => {
+      show({ phase: 'checking' });
+      try { show(await d.checkForUpdates()); } catch (e) { show({ phase: 'error', message: e.message }); }
+    };
+    // Show where things stand (e.g. a download started from the start-up dialog) and follow live changes.
+    d.getUpdateStatus?.().then(show).catch(() => {});
+    const off = d.onUpdateStatus?.(show);
+    if (off) aboutCleanup = off;
   }
 
   /** Save a settings patch. Resolves true on success; on failure shows the error and resolves false. */
@@ -279,4 +319,6 @@ export async function renderSettings(root) {
       signedOut();
     };
   }
+
+  return () => aboutCleanup?.();
 }
