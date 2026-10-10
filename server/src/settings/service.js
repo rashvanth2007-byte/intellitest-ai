@@ -15,7 +15,8 @@ export const DEFAULT_SETTINGS = {
   theme: 'system',
 };
 
-export const PROVIDERS = ['anthropic', 'gemini', 'github'];
+/** Keys a user can save from Settings. AI keys (Anthropic, Gemini) come only from the server environment. */
+export const PROVIDERS = ['github'];
 
 export async function getSettings(userId) {
   const row = await getDb().get('SELECT data FROM user_settings WHERE user_id = ?', [userId]);
@@ -58,20 +59,23 @@ export async function keyStatus(userId) {
   const rows = await getDb().all('SELECT provider, hint, updated_at FROM api_keys WHERE user_id = ?', [userId]);
   const mine = Object.fromEntries(rows.map((r) => [r.provider, { hint: r.hint, updatedAt: Number(r.updated_at) }]));
   return {
-    anthropic: { user: mine.anthropic || null, server: !!config.ai.anthropicKey },
-    gemini: { user: mine.gemini || null, server: !!config.ai.geminiKey },
+    anthropic: { user: null, server: !!config.ai.anthropicKey },
+    gemini: { user: null, server: !!config.ai.geminiKey },
     github: { user: mine.github || null, server: !!config.github.token },
   };
 }
 
-/** User's own key first, then the server-wide key from the environment. */
+/**
+ * AI keys (Anthropic, Gemini) come only from the server environment (.env).
+ * GitHub: the user's own token first, then the server-wide token.
+ */
 export async function resolveApiKey(userId, provider) {
-  const row = await getDb().get('SELECT key_enc FROM api_keys WHERE user_id = ? AND provider = ?', [userId, provider]);
-  if (row) { try { return decrypt(row.key_enc); } catch { /* key rotated */ } }
   if (provider === 'anthropic') return config.ai.anthropicKey;
   if (provider === 'gemini') return config.ai.geminiKey;
-  if (provider === 'github') return config.github.token;
-  return '';
+  if (provider !== 'github') return '';
+  const row = await getDb().get('SELECT key_enc FROM api_keys WHERE user_id = ? AND provider = ?', [userId, provider]);
+  if (row) { try { return decrypt(row.key_enc); } catch { /* key rotated */ } }
+  return config.github.token;
 }
 
 /**

@@ -33,7 +33,7 @@ export function renderAuth(root, { mode, params }) {
       <form class="auth-card" id="authForm" novalidate>
         <div>
           <h2>${isRegister ? 'Create your account' : 'Welcome back'}</h2>
-          <p class="muted" style="font-size:13px;margin-top:4px">${isRegister ? 'Your scans and API keys stay private to your account.' : 'Sign in to scan your code.'}</p>
+          <p class="muted" style="font-size:13px;margin-top:4px">${isRegister ? 'Your scans stay private to your account.' : 'Sign in to scan your code.'}</p>
         </div>
         ${oauthErr ? `<div class="form-error">${esc(oauthErr)}</div>` : ''}
         <div class="form-error hidden" id="err" role="alert"></div>

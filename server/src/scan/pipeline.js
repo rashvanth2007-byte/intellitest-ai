@@ -35,7 +35,7 @@ export async function runScan(job) {
   const warnings = [];
   if (!engine.provider) {
     warnings.push(engine.missing
-      ? `No ${engine.missing === 'claude' ? 'Anthropic' : 'Gemini'} API key configured — AI agents were skipped. Add a key in Settings.`
+      ? `No ${engine.missing === 'claude' ? 'Anthropic' : 'Gemini'} API key configured — AI agents were skipped. Set ${engine.missing === 'claude' ? 'ANTHROPIC_API_KEY' : 'GEMINI_API_KEY'} in the server .env file.`
       : 'AI agents skipped (no API key configured). Rule, secret and dependency engines still ran.');
   }
   let lastSave = 0;

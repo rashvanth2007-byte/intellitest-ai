@@ -57,7 +57,7 @@ export function engineSummary() {
   if (s.engine === 'rules') return { ai: false, label: 'Rules + secrets + CVEs', detail: 'AI agents disabled' };
   if ((s.engine === 'claude' || s.engine === 'auto') && has('anthropic')) return { ai: true, label: model(s.claudeModel), detail: `${s.aiDepth} depth` };
   if ((s.engine === 'gemini' || s.engine === 'auto') && has('gemini')) return { ai: true, label: model(s.geminiModel), detail: `${s.aiDepth} depth` };
-  return { ai: false, label: 'Rules only', detail: 'add an API key for AI agents', missingKey: true };
+  return { ai: false, label: 'Rules only', detail: 'no AI key on the server', missingKey: true };
 }
 
 function updateEnginePill() {

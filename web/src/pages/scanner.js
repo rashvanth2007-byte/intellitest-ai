@@ -127,7 +127,7 @@ export function renderScanner(root) {
         <div class="card empty-state" id="emptyState">
           ${icon('shield')}
           <h3>Ready to analyze</h3>
-          <p>The rule engine, secret scanner and CVE lookup always run. ${eng.ai ? 'Five AI agents then review the most security-relevant code.' : 'Add an Anthropic or Gemini API key in Settings to enable the five AI agents.'}</p>
+          <p>The rule engine, secret scanner and CVE lookup always run. ${eng.ai ? 'Five AI agents then review the most security-relevant code.' : 'Set ANTHROPIC_API_KEY or GEMINI_API_KEY in the server .env file to enable the five AI agents.'}</p>
         </div>
       </div>
     </div>

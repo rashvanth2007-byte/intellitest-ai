@@ -3,8 +3,6 @@ import { esc, icon, toast, confirmDialog, applyTheme, fmtTime, initials, safeUrl
 import { state, refreshSettings, refreshSession, signedOut } from '../main.js';
 
 const KEY_INFO = {
-  anthropic: { title: 'Anthropic (Claude) API key', ph: 'sk-ant-…', help: 'Create one at console.anthropic.com → API keys.' },
-  gemini: { title: 'Google Gemini API key', ph: 'AIza…', help: 'Create one at aistudio.google.com → Get API key.' },
   github: { title: 'GitHub personal access token', ph: 'github_pat_… or ghp_…', help: 'Optional. Lets you scan private repos and raises GitHub rate limits. Needs read access to repository contents.' },
 };
 
@@ -17,7 +15,7 @@ export async function renderSettings(root) {
     const s = state.settings, k = state.keys, o = state.options, u = state.user;
     const sel = (v) => (s.engine === v ? 'sel' : '');
     root.innerHTML = `<div class="page">
-      <div class="page-head"><div><div class="page-title">Settings</div><div class="page-sub">Engine, API keys and account. Keys are encrypted on the server and never sent back to the browser.</div></div></div>
+      <div class="page-head"><div><div class="page-title">Settings</div><div class="page-sub">Engine, GitHub token and account. Your token is encrypted on the server and never sent back to the browser.</div></div></div>
       <div class="settings">
 
         <div class="card">
@@ -46,8 +44,8 @@ export async function renderSettings(root) {
         </div>
 
         <div class="card">
-          <div class="sect-title">API keys</div>
-          ${['anthropic', 'gemini', 'github'].map((p) => {
+          <div class="sect-title">GitHub token</div>
+          ${['github'].map((p) => {
             const st = k[p];
             return `<div class="set-row" style="flex-direction:column;align-items:stretch">
               <div class="set-info"><h4>${KEY_INFO[p].title}</h4><p>${KEY_INFO[p].help}</p></div>
